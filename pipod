@@ -565,6 +565,26 @@ fi
 # root, which makes them unwritable by the in-container ubuntu user).
 prepare_config
 
+# Processes currently inside the container (data rows of `docker top`).
+container_proc_count() {
+    docker top "$CONTAINER_NAME" -o pid 2>/dev/null | tail -n +2 | wc -l
+}
+
+# Process count of an IDLE container, for the wait-for-stop loop and the
+# idle-only auto-stop below. Containers are created with `--init`, so Docker's
+# bundled init runs as PID 1 next to the idle `sleep infinity`: idle = 2.
+# Containers created before `--init` (reused as-is until `./pipod -r`
+# recreates them) have only the sleep as PID 1: idle = 1 — and since a bare
+# sleep never reaps, their orphaned zombie children also keep the count above
+# idle until the container is recreated.
+idle_proc_count() {
+    if [ "$(docker inspect -f '{{.HostConfig.Init}}' "$CONTAINER_NAME" 2>/dev/null)" = "true" ]; then
+        echo 2
+    else
+        echo 1
+    fi
+}
+
 if [ -z "$EXISTING" ]; then
     # No existing container — build the image and create one.
     echo "Building a new container $CONTAINER_NAME"
@@ -611,8 +631,12 @@ if [ -z "$EXISTING" ]; then
     [ -n "$HOST_TZ" ] && TZ_ENV=(-e "TZ=$HOST_TZ")
 
     echo "Starting container $CONTAINER_NAME"
+    # --init runs Docker's bundled init (docker-init) as PID 1, ahead of the
+    # idle sleep, so processes orphaned by finished exec sessions get reaped
+    # instead of piling up as zombies under a `sleep` that never waits.
     docker run -d \
         --name "$CONTAINER_NAME" \
+        --init \
         --entrypoint sleep \
         "${ADD_HOST[@]}" \
         $NETWORK_OPT \
@@ -629,8 +653,8 @@ else
         STATUS=$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "missing")
         case "$STATUS" in
             running)
-                # If only the idle sleep process remains, a stop may be in progress.
-                if [ "$(docker top "$CONTAINER_NAME" -o pid 2>/dev/null | tail -n +2 | wc -l)" -le 1 ] && [ "$WAITED" -lt 15 ]; then
+                # If only the idle processes (init + sleep) remain, a stop may be in progress.
+                if [ "$(container_proc_count)" -le "$(idle_proc_count)" ] && [ "$WAITED" -lt 15 ]; then
                     [[ "$WAITED" -eq 0 ]] && echo "Waiting for $CONTAINER_NAME to finish stopping"
                     sleep 1; WAITED=$((WAITED + 1)); continue
                 fi
@@ -703,8 +727,8 @@ else
     docker exec "${EXEC_FLAGS[@]}" "$CONTAINER_NAME" "${RUN_CMD[@]}" "${EXTRA_ARGS[@]}"
 fi
 
-# Auto-stop container when only the sleep idle process remains.
-if [ "$(docker top "$CONTAINER_NAME" -o pid 2>/dev/null | tail -n +2 | wc -l)" -le 1 ]; then
+# Auto-stop container when only the idle processes (init + sleep) remain.
+if [ "$(container_proc_count)" -le "$(idle_proc_count)" ]; then
     echo "Stopping $CONTAINER_NAME"
     docker kill "$CONTAINER_NAME" >/dev/null 2>&1 &
 fi

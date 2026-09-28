@@ -24,14 +24,14 @@ teardown() {
 }
 
 # Run pipod in existing-container mode: docker ps returns a fake ID (skipping
-# the build/run branch), state is running (no start needed), TOP_N=2 keeps the
-# auto-stop condition (`<=1`) false so the background `docker kill &` doesn't
-# race the test's log read.
+# the build/run branch), state is running (no start needed), TOP_N=3 keeps the
+# auto-stop condition (<=2 with --init: init + sleep) false so the background
+# `docker kill &` doesn't race the test's log read.
 run_pipod() {
     DOCKER_MOCK_LOG="$DOCKER_LOG" \
     DOCKER_MOCK_STATE=running \
     DOCKER_MOCK_PS_ID=fakeID12345 \
-    DOCKER_MOCK_TOP_N=2 \
+    DOCKER_MOCK_TOP_N=3 \
     PATH="$MOCK_BIN:$PATH" \
         run "$PIPOD" "$@"
 }

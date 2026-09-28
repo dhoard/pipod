@@ -8,7 +8,11 @@
 #   DOCKER_MOCK_STATE   "running" | "exited" | "paused" | "created" | "dead"
 #                       | "missing" (default; makes `inspect` exit 1)
 #   DOCKER_MOCK_TOP_N   number of lines `docker top` should report (default 1,
-#                       the idle sleep process — triggers auto-stop)
+#                       below the idle threshold — triggers auto-stop)
+#   DOCKER_MOCK_INIT    "true" | "false" reported for `docker inspect -f
+#                       '{{.HostConfig.Init}}'` (default true, a container
+#                       created with --init: idle = init + sleep = 2; false
+#                       simulates a legacy pre---init container, idle = 1)
 #
 # Only the forms of each subcommand that pipod actually invokes are handled;
 # anything else is logged and exits 0 so unexpected calls surface in the log.
@@ -16,6 +20,7 @@
 LOG="${DOCKER_MOCK_LOG:-/dev/null}"
 STATE="${DOCKER_MOCK_STATE:-missing}"
 TOP_N="${DOCKER_MOCK_TOP_N:-1}"
+INIT="${DOCKER_MOCK_INIT:-true}"
 # When non-empty, `docker ps -aq -f name=...` returns this fake ID, making
 # pipod take the existing-container path (skip build/run) and reach `docker
 # exec` for agent-arg forwarding tests.
@@ -55,6 +60,14 @@ case "$subcmd" in
                         exit 1
                     fi
                     printf '%s' "$STATE"
+                    exit 0
+                    ;;
+                "{{.HostConfig.Init}}")
+                    if [ "$STATE" = "missing" ]; then
+                        echo "Error: No such object: ${3:-}" >&2
+                        exit 1
+                    fi
+                    printf '%s' "$INIT"
                     exit 0
                     ;;
                 "{{range .Mounts}}"*)
