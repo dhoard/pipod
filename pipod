@@ -368,6 +368,23 @@ host_timezone() {
     fi
 }
 
+# Copy the host's git identity into the container's ~/.gitconfig, unless that file
+# already exists. It is read from the workspace directory, so the host's repo-local
+# and includeIf config apply. It is written at global scope rather than passed as
+# GIT_AUTHOR_*/GIT_COMMITTER_* because those env vars would override the config of
+# any repo inside the container.
+sync_git_identity() {
+    local container="$1" key value
+    docker exec "$container" test -e /home/ubuntu/.gitconfig >/dev/null 2>&1 && return 0
+    for key in user.name user.email; do
+        value="$(git config --get "$key" 2>/dev/null)" || continue
+        if ! docker exec "$container" git config --global "$key" "$value" >/dev/null 2>&1; then
+            echo "pipod: warning: couldn't set the git identity inside $container." >&2
+            return 0
+        fi
+    done
+}
+
 # When sourced (e.g. by the test suite), expose the functions above without
 # enabling strict mode or running the main flow.
 if [[ "${BASH_SOURCE[0]}" != "${0}" ]]; then
@@ -713,6 +730,8 @@ if [ "$NO_NETWORK" = true ]; then
         echo "Network: isolated ($NO_NET_NETWORK) — host reachable, no Internet."
     fi
 fi
+
+sync_git_identity "$CONTAINER_NAME"
 
 # Run an agent session or bash shell. `--no-tty` drops the `-t` (no pseudo-tty)
 # so stdin can be piped or the agent run non-interactively; EXTRA_ARGS (set by

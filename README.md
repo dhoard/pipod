@@ -65,6 +65,11 @@ allowing per-workspace model, auth, skills, plugins or settings overrides.
 
 To reference models running on `localhost`, use `host.docker.internal` as the host.
 
+Your git identity carries over: if the container has no `~/.gitconfig`, pipod creates one with the `user.name` and
+`user.email`. An existing file is
+never changed, so this happens once per container. A repo's own config still takes precedence. Nothing
+else from your host git config is copied, so signing and credential helpers aren't passed through.
+
 > **Permissions:** The host UID/GID are mapped directly into the container so that file permissions match your local
 > host user.
 
